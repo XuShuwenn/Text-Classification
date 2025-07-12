@@ -20,7 +20,7 @@ class TextCNN(nn.Module):
 
         #Convolutional layer
         self.convs=nn.ModuleList([
-            nn.Conv2d(1,self.nun_filters,(k,self.embed_dim))
+            nn.Conv2d(1,self.num_filters,(k,self.embed_dim))
             for k in self.filter_sizes
         ])     
         #Dropout layer
@@ -41,8 +41,10 @@ class TextCNN(nn.Module):
             conv_out=conv_out.squeeze(3)
             # (batch_size, num_filters, conv_seq_len)
             pool_out=F.max_pool1d(conv_out,conv_out.size(2))
+            # (batch_size, num_filters, 1)
+            pool_out=pool_out.squeeze(2)
             # (batch_size, num_filters)
-            conv_results.qppend(pool_out)
+            conv_results.append(pool_out)
 
         #拼接所有卷积结果
         x=torch.cat(conv_results,1)

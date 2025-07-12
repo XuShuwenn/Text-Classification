@@ -1,25 +1,56 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from transformers import get_linear_schedule_with_warmup
 import numpy as np
 import time
 import os
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-from config import TRAINING_CONFIG, PATHS, DEVICE
-from models import get_model
+from config import TRAINING_CONFIG, PATHS, DEVICE, MODEL_CONFIG
+from utils.wandb_util import WandbLogger
+from models import TextCNN, LSTM, BERTClassifier
 from data_processor import get_data_loaders
+
+
+def get_model(model_type, config=None):
+    """
+    Factory function to create model instances.
+    
+    Args:
+        model_type (str): Type of model ('textcnn', 'lstm', 'bert')
+        config (dict): Model configuration parameters
+        
+    Returns:
+        nn.Module: Instantiated model
+        
+    Raises:
+        ValueError: If model_type is not supported
+    """
+    model_registry = {
+        'textcnn': TextCNN,
+        'lstm': LSTM,
+        'bert': BERTClassifier
+    }
+    
+    if model_type not in model_registry:
+        supported_models = list(model_registry.keys())
+        raise ValueError(f"Unsupported model type: {model_type}. "
+                        f"Supported models: {supported_models}")
+    
+    model_class = model_registry[model_type]
+    
+    if config is None:
+        config = MODEL_CONFIG[model_type]
+    
+    return model_class(config)
 
 
 class Trainer:
     """训练器类"""
     
-    def __init__(self, model_type, model_config=None):
+    def __init__(self, model_type, model_config=None, use_wandb=True):
         self.model_type = model_type
         self.model_config = model_config
         self.device = DEVICE
@@ -27,10 +58,8 @@ class Trainer:
         # 创建模型
         self.model = get_model(model_type, model_config).to(self.device)
         
-        # 损失函数
+        # 损失函数和优化器
         self.criterion = nn.CrossEntropyLoss()
-        
-        # 优化器
         self.optimizer = None
         self.scheduler = None
         
@@ -39,8 +68,18 @@ class Trainer:
         self.train_losses = []
         self.val_accuracies = []
         
-        # TensorBoard
-        self.writer = SummaryWriter(log_dir=os.path.join(PATHS['log_dir'], model_type))
+        # Wandb logger
+        self.wandb_logger = None
+        if use_wandb:
+            self.wandb_logger = WandbLogger(
+                project_name="text-classification-imdb",
+                experiment_name=f"{model_type}_experiment",
+                config=MODEL_CONFIG.get(model_type, {}),
+                tags=[model_type, "imdb", "sentiment"],
+                notes=f"Training {model_type} model on IMDB dataset"
+            )
+            self.wandb_logger.init_wandb(model_type)
+            self.wandb_logger.log_model_architecture(self.model, (32, 512))
         
         print(f"Initialized trainer for {model_type}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
@@ -123,16 +162,13 @@ class Trainer:
                 'avg_loss': f'{total_loss / (batch_idx + 1):.4f}'
             })
             
-            # 记录到TensorBoard
-            global_step = epoch * num_batches + batch_idx
-            self.writer.add_scalar('Loss/Train', loss.item(), global_step)
-            
-            if batch_idx % TRAINING_CONFIG['logging_steps'] == 0:
-                self.writer.add_scalar(
-                    'Learning_Rate', 
-                    self.optimizer.param_groups[0]['lr'], 
-                    global_step
-                )
+            # 记录指标
+            if self.wandb_logger and batch_idx % TRAINING_CONFIG['logging_steps'] == 0:
+                self.wandb_logger.log_metrics({
+                    'train/loss': loss.item(),
+                    'train/avg_loss': total_loss / (batch_idx + 1),
+                    'learning_rate': self.optimizer.param_groups[0]['lr']
+                }, step=epoch * num_batches + batch_idx)
         
         if self.scheduler and self.model_type != 'bert':
             self.scheduler.step()
@@ -217,23 +253,19 @@ class Trainer:
             torch.save(checkpoint, best_path)
             print(f"New best model saved with accuracy: {accuracy:.4f}")
     
-    def plot_confusion_matrix(self, predictions, labels, split_name="test"):
-        """绘制混淆矩阵"""
-        cm = confusion_matrix(labels, predictions)
-        
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                   xticklabels=['Negative', 'Positive'],
-                   yticklabels=['Negative', 'Positive'])
-        plt.title(f'Confusion Matrix - {self.model_type.upper()} ({split_name})')
-        plt.xlabel('Predicted')
-        plt.ylabel('Actual')
-        
-        output_path = os.path.join(PATHS['output_dir'], f'{self.model_type}_confusion_matrix_{split_name}.png')
-        plt.savefig(output_path)
-        plt.close()
-        
-        print(f"Confusion matrix saved to: {output_path}")
+    def log_results(self, predictions, labels, split_name="test"):
+        """使用wandb记录结果"""
+        if self.wandb_logger:
+            self.wandb_logger.log_confusion_matrix(
+                labels, predictions, 
+                class_names=['Negative', 'Positive'],
+                title=f'{self.model_type.upper()} - {split_name.title()}'
+            )
+            self.wandb_logger.log_classification_report(
+                labels, predictions,
+                class_names=['Negative', 'Positive'],
+                prefix=f"{split_name}/"
+            )
     
     def train(self, train_loader, val_loader):
         """完整的训练流程"""
@@ -255,13 +287,18 @@ class Trainer:
             # 验证
             val_metrics, _, _ = self.evaluate(val_loader, "validation")
             val_accuracy = val_metrics['accuracy']
-            
             self.val_accuracies.append(val_accuracy)
             
-            # 记录到TensorBoard
-            self.writer.add_scalar('Loss/Validation', val_metrics['loss'], epoch)
-            self.writer.add_scalar('Accuracy/Validation', val_accuracy, epoch)
-            self.writer.add_scalar('F1/Validation', val_metrics['f1'], epoch)
+            # 记录验证指标
+            if self.wandb_logger:
+                self.wandb_logger.log_metrics({
+                    'val/loss': val_metrics['loss'],
+                    'val/accuracy': val_accuracy,
+                    'val/precision': val_metrics['precision'],
+                    'val/recall': val_metrics['recall'],
+                    'val/f1': val_metrics['f1'],
+                    'epoch': epoch
+                }, step=epoch)
             
             # 保存模型
             is_best = val_accuracy > self.best_accuracy
@@ -285,7 +322,11 @@ class Trainer:
                 print(f"Early stopping triggered after {epoch+1} epochs")
                 break
         
-        self.writer.close()
+        # 记录学习曲线并完成训练
+        if self.wandb_logger:
+            val_losses = [self.val_accuracies[i] * -1 for i in range(len(self.val_accuracies))]  # 模拟验证损失
+            self.wandb_logger.log_learning_curves(self.train_losses, self.val_accuracies, val_losses)
+        
         print(f"Training completed. Best accuracy: {self.best_accuracy:.4f}")
     
     def test(self, test_loader):
@@ -310,13 +351,40 @@ class Trainer:
         print(f"Recall: {test_metrics['recall']:.4f}")
         print(f"F1-Score: {test_metrics['f1']:.4f}")
         
-        # 绘制混淆矩阵
-        self.plot_confusion_matrix(predictions, labels, "test")
+        # 记录测试结果
+        if self.wandb_logger:
+            self.wandb_logger.log_metrics({
+                'test/accuracy': test_metrics['accuracy'],
+                'test/precision': test_metrics['precision'],
+                'test/recall': test_metrics['recall'],
+                'test/f1': test_metrics['f1']
+            })
+            
+        # 使用wandb记录可视化结果
+        self.log_results(predictions, labels, "test")
         
         return test_metrics
+    
+def compare_all_models(results):
+    """使用wandb对比所有模型"""
+    from utils.wandb_util import compare_models_wandb
+    
+    print(f"\n{'='*50}")
+    print("MODEL COMPARISON")
+    print(f"{'='*50}")
+    
+    # 控制台输出对比
+    for model_type, metrics in results.items():
+        print(f"{model_type.upper()}:")
+        print(f"  Accuracy: {metrics['accuracy']:.4f}")
+        print(f"  F1-Score: {metrics['f1']:.4f}")
+        print()
+    
+    # 使用wandb创建对比可视化
+    compare_models_wandb(results)
 
 
-def main():
+if __name__ == "__main__":
     """主函数 - 训练所有模型"""
     model_types = ['textcnn', 'lstm', 'bert']
     results = {}
@@ -337,28 +405,19 @@ def main():
         # 创建训练器
         trainer = Trainer(model_type)
         
-        # 划分验证集
-        # 这里为了简化，我们使用测试集作为验证集
-        # 在实际项目中，你应该从训练集中划分验证集
-        
         # 训练
         trainer.train(train_loader, test_loader)
         
         # 测试
         test_metrics = trainer.test(test_loader)
         results[model_type] = test_metrics
+        
+        # 完成当前模型的wandb记录
+        if trainer.wandb_logger:
+            trainer.wandb_logger.finish()
     
-    # 打印所有结果
-    print(f"\n{'='*50}")
-    print("FINAL RESULTS")
-    print(f"{'='*50}")
+    # 对比所有模型
+    compare_all_models(results)
     
-    for model_type, metrics in results.items():
-        print(f"{model_type.upper()}:")
-        print(f"  Accuracy: {metrics['accuracy']:.4f}")
-        print(f"  F1-Score: {metrics['f1']:.4f}")
-        print()
 
 
-if __name__ == "__main__":
-    main()

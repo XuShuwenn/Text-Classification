@@ -18,7 +18,7 @@ class LSTM(nn.Module):
         self.bidirectional = config['bidirectional']
 
         #word embedding layer
-        self.emdedding=nn.Embedding(self.vocab_size,self.embed_dim)
+        self.embedding=nn.Embedding(self.vocab_size,self.embed_dim)
         #LSTM layer
         self.lstm=nn.LSTM(
             self.embed_dim,
@@ -30,10 +30,8 @@ class LSTM(nn.Module):
         )
 
         #计算LSTM的输出维度
-        lstm_output_dim=self.hidden*2 if self.bidirectional else self.hidden_dim
+        lstm_output_dim=self.hidden_dim*2 if self.bidirectional else self.hidden_dim
         #dropout layer
-        self.dropout_layer=nn.Dropout(self.dropout)
-        #Dropout Layer
         self.dropout_layer=nn.Dropout(self.dropout)
 
         #MLP Layer
