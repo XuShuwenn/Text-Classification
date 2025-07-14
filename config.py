@@ -32,7 +32,7 @@ MODEL_CONFIG = {
         'vocab_size': 30000,
         'embed_dim': 64,  # 降低嵌入维度，减少过拟合
         'hidden_dim': 256,  # 降低隐藏层维度
-        'num_layers': 2,  # 减少层数，避免梯度消失
+        'num_layers': 2,  
         'dropout': 0.2,  # 降低dropout
         'num_classes': 2,
         'bidirectional': True,
