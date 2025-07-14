@@ -32,67 +32,32 @@ This project implements three different models for text classification:
 - Adds a classification head on top of BERT
 - Supports fine-tuning
 
-## Project Structure
 
-```
-Text-Classification/
-├── main.py              # Main execution script
-├── config.py            # Configuration file
-├── data_processor.py    # Data processing module
-├── models/              # Model definitions (TextCNN, LSTM, BERT)
-├── train.py             # Training script
-├── requirements.txt     # Dependencies
-├── data/                # Data directory
-├── models/              # Saved models
-├── output/              # Output results
-├── logs/                # Training logs
-└── cache/               # Cache directory
-```
-
-## Installation and Usage
-
-### 1. Environment Setup
-
-```bash
-# Clone the project
-git clone <repository-url>
-cd Text-Classification
-
-# (Optional) Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate     # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Training Models
+## Training Models
 
 You can train any of the three models (TextCNN, LSTM, BERT) using the training script. The IMDB dataset will be automatically downloaded and preprocessed.
 
-#### Train all models (TextCNN, LSTM, BERT):
+### Train all models (TextCNN, LSTM, BERT):
 ```bash
 python train.py
 ```
 
-#### Train a specific model (e.g., LSTM):
+### Train a specific model (e.g., LSTM):
 ```bash
 python train.py --model lstm
 ```
 
-#### Train with custom parameters:
+### Train with custom parameters:
 ```bash
-python train.py --model bert --epochs 10 --batch_size 16 --lr 3e-5
+python train.py --model bert --epochs 10 --batch_size 256 --lr 5e-5
 ```
 
-#### Disable Weights & Biases logging:
+### Disable Weights & Biases logging:
 ```bash
 python train.py --model textcnn --no_wandb
 ```
 
-### 3. Configuration
+### Configuration
 
 Main configurations are in `config.py`:
 
@@ -101,14 +66,6 @@ Main configurations are in `config.py`:
 - `TRAINING_CONFIG`: Training-related configurations (learning rate, epochs, gradient accumulation, etc.)
 
 You can modify these settings to suit your hardware and experiment needs.
-
-### 4. Output Results
-
-After training, the following files will be generated:
-
-- `models/`: Saved model checkpoints
-- `output/`: Training curves and comparison charts
-- `logs/`: Training logs
 
 ## Features
 
@@ -123,7 +80,7 @@ After training, the following files will be generated:
 
 | Model   | Accuracy | F1-Score | Parameters |
 |---------|----------|----------|------------|
-| TextCNN | ~87%     | ~87%     | ~2.5M      |
+| TextCNN | ~88%     | ~87%     | ~2.5M      |
 | LSTM    | ~85%     | ~85%     | ~3.2M      |
 | BERT    | ~93%     | ~93%     | ~110M      |
 
