@@ -12,24 +12,24 @@ We use the Stanford IMDB dataset from Hugging Face: [stanfordnlp/imdb](https://h
 
 ## Model Architectures
 
-This project implements three different models:
+This project implements three different models for text classification:
 
 ### 1. TextCNN
-- Uses multiple convolutional kernels of different sizes (3, 4, 5)
-- Word embedding dimension: 100
-- Number of filters: 100
-- Includes Dropout layers to prevent overfitting
+- Multiple convolutional kernels of different sizes (3, 4, 5)
+- Word embedding dimension: configurable
+- Number of filters: configurable
+- Dropout layers to prevent overfitting
 
 ### 2. LSTM
 - Bidirectional LSTM network
-- Word embedding dimension: 100
-- Hidden layer dimension: 128
-- Number of layers: 2
-- Includes Dropout layers
+- Word embedding dimension: configurable
+- Hidden layer dimension: configurable
+- Number of layers: configurable
+- Dropout layers
 
 ### 3. BERT
-- Uses pre-trained bert-base-uncased model
-- Adds classification head on top of BERT
+- Uses pre-trained bert-base-uncased model (or other HuggingFace BERT models)
+- Adds a classification head on top of BERT
 - Supports fine-tuning
 
 ## Project Structure
@@ -39,16 +39,14 @@ Text-Classification/
 ├── main.py              # Main execution script
 ├── config.py            # Configuration file
 ├── data_processor.py    # Data processing module
-├── models.py            # Model definitions
-├── train.py            # Training script
-├── evaluate.py         # Evaluation script
-├── inference.py        # Inference script
-├── requirements.txt    # Dependencies
-├── data/              # Data directory
-├── models/            # Saved models
-├── output/            # Output results
-├── logs/              # Training logs
-└── cache/             # Cache directory
+├── models/              # Model definitions (TextCNN, LSTM, BERT)
+├── train.py             # Training script
+├── requirements.txt     # Dependencies
+├── data/                # Data directory
+├── models/              # Saved models
+├── output/              # Output results
+├── logs/                # Training logs
+└── cache/               # Cache directory
 ```
 
 ## Installation and Usage
@@ -60,7 +58,7 @@ Text-Classification/
 git clone <repository-url>
 cd Text-Classification
 
-# Create virtual environment (recommended)
+# (Optional) Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # or
@@ -70,87 +68,67 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Quick Start
+### 2. Training Models
 
+You can train any of the three models (TextCNN, LSTM, BERT) using the training script. The IMDB dataset will be automatically downloaded and preprocessed.
+
+#### Train all models (TextCNN, LSTM, BERT):
 ```bash
-# Check environment
-python main.py check
-
-# Setup project directories
-python main.py setup
-
-# Train all models
-python main.py train
-
-# Evaluate models
-python main.py evaluate
-
-# Inference (interactive mode)
-python main.py infer --model bert --interactive
-
-# Inference (single prediction)
-python main.py infer --model bert --text "This movie is amazing!"
-```
-
-### 3. Detailed Usage
-
-#### Training Models
-```bash
-# Train all models (TextCNN, LSTM, BERT)
 python train.py
-
-# Or use main script
-python main.py train
 ```
 
-#### Evaluating Models
+#### Train a specific model (e.g., LSTM):
 ```bash
-# Evaluate all trained models
-python evaluate.py
-
-# Or use main script
-python main.py evaluate
+python train.py --model lstm
 ```
 
-#### Inference
+#### Train with custom parameters:
 ```bash
-# Use BERT model for inference
-python inference.py --model bert --text "Great movie!"
-
-# Interactive mode
-python inference.py --model bert --interactive
-
-# Use other models
-python inference.py --model textcnn --text "Terrible film!"
-python inference.py --model lstm --text "Amazing story!"
+python train.py --model bert --epochs 10 --batch_size 16 --lr 3e-5
 ```
 
-## Configuration
+#### Disable Weights & Biases logging:
+```bash
+python train.py --model textcnn --no_wandb
+```
+
+### 3. Configuration
 
 Main configurations are in `config.py`:
 
 - `DATA_CONFIG`: Data-related configurations (batch size, sequence length, etc.)
 - `MODEL_CONFIG`: Model-related configurations (vocabulary size, embedding dimension, etc.)
-- `TRAINING_CONFIG`: Training-related configurations (learning rate, epochs, etc.)
+- `TRAINING_CONFIG`: Training-related configurations (learning rate, epochs, gradient accumulation, etc.)
 
-## Output Results
+You can modify these settings to suit your hardware and experiment needs.
 
-After training and evaluation, the following files will be generated:
+### 4. Output Results
+
+After training, the following files will be generated:
 
 - `models/`: Saved model checkpoints
-- `output/model_comparison.png`: Model performance comparison chart
-- `output/all_confusion_matrices.png`: Confusion matrices
-- `output/evaluation_report.txt`: Detailed evaluation report
-- `logs/`: TensorBoard log files
+- `output/`: Training curves and comparison charts
+- `logs/`: Training logs
 
-## Model Performance
+## Features
 
-Typical performance (for reference only):
+- Supports three model architectures: TextCNN, LSTM, and BERT
+- Easy switching between models via command line
+- Flexible configuration for model and training parameters
+- Automatic download and preprocessing of the IMDB dataset
+- Training progress logging with TensorBoard and Weights & Biases (wandb)
+- Model checkpoints and training curves saved for later analysis
 
-| Model | Accuracy | F1-Score | Parameters |
-|-------|----------|----------|------------|
-| TextCNN | ~87% | ~87% | ~2.5M |
-| LSTM | ~85% | ~85% | ~3.2M |
-| BERT | ~93% | ~93% | ~110M |
+## Model Performance (Reference)
+
+| Model   | Accuracy | F1-Score | Parameters |
+|---------|----------|----------|------------|
+| TextCNN | ~87%     | ~87%     | ~2.5M      |
+| LSTM    | ~85%     | ~85%     | ~3.2M      |
+| BERT    | ~93%     | ~93%     | ~110M      |
+
+---
+
+For more details on configuration and advanced usage, please refer to the comments in `config.py` and the source code.
 
 
