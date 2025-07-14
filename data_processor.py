@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from collections import Counter
 import re
 from tqdm import tqdm
-from config import DATA_CONFIG, PATHS, DEVICE
+from config import DATA_CONFIG, PATHS, DEVICE, TRAINING_CONFIG
 
 
 class IMDBDataProcessor:
@@ -21,18 +21,45 @@ class IMDBDataProcessor:
         self.idx2word = None
         
     def load_data(self):
-        """加载IMDB数据集"""
+        """加载IMDB数据集并进行训练/验证/测试分割"""
         print("Loading IMDB dataset...")
-        dataset = load_dataset(DATA_CONFIG['dataset_name'])
+        
+        # 使用正确的配置加载数据集
+        dataset_config = DATA_CONFIG.get('dataset_config', 'plain_text')
+        dataset = load_dataset(DATA_CONFIG['dataset_name'], dataset_config)
         
         # 转换为pandas DataFrame
         train_df = pd.DataFrame(dataset['train'])
         test_df = pd.DataFrame(dataset['test'])
         
-        print(f"Train set size: {len(train_df)}")
+        print(f"Original train set size: {len(train_df)}")
+        print(f"Original test set size: {len(test_df)}")
+        
+        # 从训练集中分出验证集
+        train_texts, val_texts, train_labels, val_labels = train_test_split(
+            train_df['text'].tolist(),
+            train_df['label'].tolist(),
+            test_size=DATA_CONFIG['test_size'],  # 10%作为验证集
+            random_state=DATA_CONFIG['random_state'],
+            stratify=train_df['label'].tolist()  # 分层采样保持标签分布
+        )
+        
+        # 创建分割后的DataFrame
+        train_df_split = pd.DataFrame({
+            'text': train_texts,
+            'label': train_labels
+        })
+        
+        val_df_split = pd.DataFrame({
+            'text': val_texts,
+            'label': val_labels
+        })
+        
+        print(f"Final train set size: {len(train_df_split)}")
+        print(f"Validation set size: {len(val_df_split)}")
         print(f"Test set size: {len(test_df)}")
         
-        return train_df, test_df
+        return train_df_split, val_df_split, test_df
     
     def preprocess_text(self, text):
         """文本预处理"""
@@ -40,14 +67,17 @@ class IMDBDataProcessor:
         text = text.lower()
         # 移除HTML标签
         text = re.sub(r'<[^>]+>', '', text)
-        # 移除特殊字符，保留字母、数字和空格
-        text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
+        # 保留更多标点符号，只移除特殊符号
+        text = re.sub(r'[^\w\s.,!?;:()\'"-]', '', text)
         # 移除多余空格
         text = re.sub(r'\s+', ' ', text).strip()
         return text
     
-    def build_vocab(self, texts, vocab_size=25000):
+    def build_vocab(self, texts, vocab_size=None):
         """构建词汇表"""
+        if vocab_size is None:
+            vocab_size = DATA_CONFIG.get('vocab_size', 30000)
+            
         print("Building vocabulary...")
         
         # 预处理文本
@@ -59,8 +89,15 @@ class IMDBDataProcessor:
             words = text.split()
             word_counts.update(words)
         
+        # 过滤低频词
+        min_freq = DATA_CONFIG.get('min_freq', 2)
+        filtered_words = {word: count for word, count in word_counts.items() 
+                         if count >= min_freq}
+        
         # 构建词汇表
-        most_common = word_counts.most_common(vocab_size - 2)  # 保留<UNK>和<PAD>
+        most_common = sorted(filtered_words.items(), key=lambda x: x[1], reverse=True)
+        vocab_size = min(vocab_size, len(most_common) + 2)  # +2 for <PAD> and <UNK>
+        most_common = most_common[:vocab_size - 2]
         
         self.word2idx = {'<PAD>': 0, '<UNK>': 1}
         self.idx2word = {0: '<PAD>', 1: '<UNK>'}
@@ -71,6 +108,7 @@ class IMDBDataProcessor:
         
         self.vocab = self.word2idx
         print(f"Vocabulary size: {len(self.vocab)}")
+        print(f"Minimum word frequency: {min_freq}")
         
         return self.vocab
     
@@ -140,17 +178,18 @@ class IMDBDataset(Dataset):
 
 
 def get_data_loaders(model_type='textcnn'):
-    """获取数据加载器"""
+    """获取数据加载器 - 训练/验证/测试分割"""
     processor = IMDBDataProcessor()
     
-    # 加载数据
-    train_df, test_df = processor.load_data()
+    # 加载数据并进行分割
+    train_df, val_df, test_df = processor.load_data()
     
     # 构建词汇表（仅对非BERT模型）
     if model_type != 'bert':
+        # 使用训练集构建词汇表
         processor.build_vocab(
             train_df['text'].tolist(), 
-            vocab_size=DATA_CONFIG.get('vocab_size', 25000)
+            vocab_size=DATA_CONFIG.get('vocab_size', 30000)
         )
     
     # 创建数据集
@@ -159,6 +198,14 @@ def get_data_loaders(model_type='textcnn'):
     train_dataset = IMDBDataset(
         train_df['text'].tolist(),
         train_df['label'].tolist(),
+        processor,
+        max_length=DATA_CONFIG['max_length'],
+        for_bert=for_bert
+    )
+    
+    val_dataset = IMDBDataset(
+        val_df['text'].tolist(),
+        val_df['label'].tolist(),
         processor,
         max_length=DATA_CONFIG['max_length'],
         for_bert=for_bert
@@ -177,28 +224,45 @@ def get_data_loaders(model_type='textcnn'):
         train_dataset,
         batch_size=DATA_CONFIG['batch_size'],
         shuffle=True,
-        num_workers=DATA_CONFIG['num_workers']
+        num_workers=DATA_CONFIG['num_workers'],
+        pin_memory=DATA_CONFIG.get('pin_memory', True),
+        persistent_workers=DATA_CONFIG.get('persistent_workers', True)
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=DATA_CONFIG['batch_size'],
+        shuffle=False,
+        num_workers=DATA_CONFIG['num_workers'],
+        pin_memory=DATA_CONFIG.get('pin_memory', True),
+        persistent_workers=DATA_CONFIG.get('persistent_workers', True)
     )
     
     test_loader = DataLoader(
         test_dataset,
         batch_size=DATA_CONFIG['batch_size'],
         shuffle=False,
-        num_workers=DATA_CONFIG['num_workers']
+        num_workers=DATA_CONFIG['num_workers'],
+        pin_memory=DATA_CONFIG.get('pin_memory', True),
+        persistent_workers=DATA_CONFIG.get('persistent_workers', True)
     )
     
-    return train_loader, test_loader, processor
+    print(f"Data loaders created:")
+    print(f"  Train batches: {len(train_loader)}")
+    print(f"  Validation batches: {len(val_loader)}")
+    print(f"  Test batches: {len(test_loader)}")
+    
+    return train_loader, val_loader, test_loader, processor
 
 
 if __name__ == "__main__":
     # 测试数据处理
-    train_loader, test_loader, processor = get_data_loaders('textcnn')
-    print(f"Train batches: {len(train_loader)}")
-    print(f"Test batches: {len(test_loader)}")
+    train_loader, val_loader, test_loader, processor = get_data_loaders('textcnn')
     
     # 查看一个batch的数据
     for batch in train_loader:
         print("Batch keys:", batch.keys())
         print("Input shape:", batch['input_ids'].shape)
         print("Labels shape:", batch['labels'].shape)
+        print("Sample labels:", batch['labels'][:5])
         break

@@ -19,6 +19,10 @@ class LSTM(nn.Module):
 
         #word embedding layer
         self.embedding=nn.Embedding(self.vocab_size,self.embed_dim)
+        
+        # 初始化嵌入层权重
+        nn.init.uniform_(self.embedding.weight, -0.1, 0.1)
+        
         #LSTM layer
         self.lstm=nn.LSTM(
             self.embed_dim,
@@ -36,6 +40,10 @@ class LSTM(nn.Module):
 
         #MLP Layer
         self.fc=nn.Linear(lstm_output_dim,self.num_classes)
+        
+        # 初始化全连接层权重
+        nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.zeros_(self.fc.bias)
 
 
     def forward(self,x):

@@ -1,0 +1,1 @@
+{"model/total_parameters": 8468738, "model/trainable_parameters": 8468738, "model/non_trainable_parameters": 0, "_timestamp": 1752410648.4074955, "_runtime": 111.7274694442749, "_step": 5621, "train/loss": 0.14455921947956085, "train/avg_loss": 0.1969428322375433, "learning_rate": 0.0001, "_wandb": {"runtime": 113}}
